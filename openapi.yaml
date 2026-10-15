@@ -1,0 +1,224 @@
+openapi: 3.0.3
+info:
+  title: BloodStock Planning API
+  description: |
+    Resilient decision-support backend for perishable blood inventory planning,
+    transfer recommendations, atomic reservations, and scenario replanning across
+    a network of hospitals.
+    
+    HARD CLINICAL RULE: Planning recommendations only - not clinical guidance.
+    All data is synthetic.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3001/api/v1
+    description: Local API server
+paths:
+  /auth/login:
+    post:
+      summary: User authentication
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  example: coordinator1@bloodstock.local
+                password:
+                  type: string
+                  example: CoordPass123!
+      responses:
+        '200':
+          description: Login successful
+        '401':
+          description: Invalid credentials
+  /auth/me:
+    get:
+      summary: Get authenticated user profile
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+  /hospitals:
+    get:
+      summary: List all network hospitals
+      tags: [Reference]
+      responses:
+        '200':
+          description: List of hospitals with coordinates and tier
+  /routes:
+    get:
+      summary: Get hospital route transit matrix
+      tags: [Reference]
+      responses:
+        '200':
+          description: List of routes between hospitals
+  /units:
+    get:
+      summary: Query blood unit inventory
+      tags: [Inventory]
+      parameters:
+        - name: hospitalId
+          in: query
+          schema: { type: string }
+        - name: component
+          in: query
+          schema: { type: string, enum: [RED_CELLS, PLATELETS, PLASMA] }
+        - name: group
+          in: query
+          schema: { type: string, enum: [O-, O+, A-, A+, B-, B+, AB-, AB+] }
+        - name: status
+          in: query
+          schema: { type: string, enum: [AVAILABLE, RESERVED, IN_TRANSIT, EXPIRED, USED] }
+      responses:
+        '200':
+          description: Filtered inventory units
+  /requests:
+    get:
+      summary: List blood requests
+      tags: [Requests]
+      responses:
+        '200':
+          description: List of requests
+    post:
+      summary: Create a blood request
+      tags: [Requests]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [component, group, unitsNeeded, neededBy, urgency]
+              properties:
+                hospitalId: { type: string }
+                component: { type: string, enum: [RED_CELLS, PLATELETS, PLASMA] }
+                group: { type: string, enum: [O-, O+, A-, A+, B-, B+, AB-, AB+] }
+                unitsNeeded: { type: integer, minimum: 1 }
+                neededBy: { type: string, format: date-time }
+                urgency: { type: string, enum: [ROUTINE, URGENT, CRITICAL] }
+      responses:
+        '201':
+          description: Request created
+  /requests/{id}/recommendations:
+    post:
+      summary: Generate planning recommendations for request
+      description: Strictly read-only decision support. Does not modify unit status or create reservations.
+      tags: [Planning]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Recommendation plan with candidate breakdown, blocking reasons, explanations, and metrics
+  /plans/compare:
+    post:
+      summary: Compare baseline greedy plan vs global min-cost flow optimized plan
+      tags: [Planning]
+      responses:
+        '200':
+          description: Comparative plan analysis with metrics deltas
+  /reservations/commit:
+    post:
+      summary: Atomically commit a recommendation plan
+      description: Zero-trust re-validation, database-level double allocation protection, and transactional claim.
+      tags: [Reservations]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [planId]
+              properties:
+                planId: { type: string }
+                assignmentIds: { type: array, items: { type: string } }
+                idempotencyKey: { type: string }
+      responses:
+        '201':
+          description: Reservations committed successfully
+        '409':
+          description: Conflict - unit already claimed
+  /reservations/{id}/dispatch:
+    post:
+      summary: Dispatch reservation (RESERVED -> IN_TRANSIT)
+      tags: [Reservations]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reservation dispatched
+  /reservations/{id}/deliver:
+    post:
+      summary: Confirm delivery (IN_TRANSIT -> DELIVERED)
+      tags: [Reservations]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reservation delivered
+  /scenarios/transport-failure:
+    post:
+      summary: Inject transport failure disruption
+      tags: [Scenarios]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromId, toId]
+              properties:
+                fromId: { type: string }
+                toId: { type: string }
+                down: { type: boolean }
+                delayMinutes: { type: integer }
+      responses:
+        '200':
+          description: Disruption applied and open requests replanned
+  /invariants:
+    get:
+      summary: Real-time invariant watchdog verification
+      tags: [Invariants]
+      responses:
+        '200':
+          description: Invariants verification report
+  /audit/verify:
+    get:
+      summary: Verify cryptographic SHA-256 hash-chain audit log
+      tags: [Audit]
+      responses:
+        '200':
+          description: Audit log integrity status
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

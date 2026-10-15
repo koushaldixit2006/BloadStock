@@ -1,0 +1,44 @@
+{
+  "_comment": "Planning support only - not a clinical decision. Synthetic data. Simplified synthetic rule set for planning logistics simulation only - not clinical guidance.",
+  "parameters": {
+    "safetyMarginMinutes": 30,
+    "dispatchBufferMinutes": 15
+  },
+  "shelfLifeDays": {
+    "RED_CELLS": 42,
+    "PLATELETS": 5,
+    "PLASMA": 30
+  },
+  "compatibility": {
+    "RED_CELLS": {
+      "O-": ["O-"],
+      "O+": ["O-", "O+"],
+      "A-": ["O-", "A-"],
+      "A+": ["O-", "O+", "A-", "A+"],
+      "B-": ["O-", "B-"],
+      "B+": ["O-", "O+", "B-", "B+"],
+      "AB-": ["O-", "A-", "B-", "AB-"],
+      "AB+": ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"]
+    },
+    "PLATELETS": {
+      "O-": ["O-", "O+"],
+      "O+": ["O-", "O+"],
+      "A-": ["A-", "A+"],
+      "A+": ["A-", "A+"],
+      "B-": ["B-", "B+"],
+      "B+": ["B-", "B+"],
+      "AB-": ["AB-", "AB+"],
+      "AB+": ["AB-", "AB+"]
+    },
+    "PLASMA": {
+      "O-": ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"],
+      "O+": ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"],
+      "A-": ["A-", "A+", "AB-", "AB+"],
+      "A+": ["A-", "A+", "AB-", "AB+"],
+      "B-": ["B-", "B+", "AB-", "AB+"],
+      "B+": ["B-", "B+", "AB-", "AB+"],
+      "AB-": ["AB-", "AB+"],
+      "AB+": ["AB-", "AB+"]
+    }
+  }
+}

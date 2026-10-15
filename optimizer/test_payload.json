@@ -1,0 +1,68 @@
+{
+  "now": "2026-10-15T08:00:00Z",
+  "mode": "optimized",
+  "requests": [
+    {
+      "id": "R-101",
+      "hospitalId": "H3",
+      "component": "PLATELETS",
+      "group": "O-",
+      "unitsNeeded": 1,
+      "neededBy": "2026-10-15T10:00:00Z",
+      "urgency": "CRITICAL"
+    },
+    {
+      "id": "R-102",
+      "hospitalId": "H1",
+      "component": "RED_CELLS",
+      "group": "A+",
+      "unitsNeeded": 2,
+      "neededBy": "2026-10-15T12:00:00Z",
+      "urgency": "URGENT"
+    }
+  ],
+  "units": [
+    {
+      "id": "U-10001",
+      "component": "PLATELETS",
+      "group": "O-",
+      "hospitalId": "H1",
+      "collectedAt": "2026-10-11T00:00:00Z",
+      "expiresAt": "2026-10-15T08:30:00Z",
+      "status": "AVAILABLE"
+    },
+    {
+      "id": "U-10002",
+      "component": "PLATELETS",
+      "group": "O-",
+      "hospitalId": "H5",
+      "collectedAt": "2026-10-12T00:00:00Z",
+      "expiresAt": "2026-10-16T12:00:00Z",
+      "status": "AVAILABLE"
+    },
+    {
+      "id": "U-10003",
+      "component": "RED_CELLS",
+      "group": "A+",
+      "hospitalId": "H1",
+      "collectedAt": "2026-10-01T00:00:00Z",
+      "expiresAt": "2026-11-10T00:00:00Z",
+      "status": "AVAILABLE"
+    },
+    {
+      "id": "U-10004",
+      "component": "RED_CELLS",
+      "group": "O+",
+      "hospitalId": "H2",
+      "collectedAt": "2026-10-01T00:00:00Z",
+      "expiresAt": "2026-11-10T00:00:00Z",
+      "status": "AVAILABLE"
+    }
+  ],
+  "routes": [
+    { "fromId": "H1", "toId": "H1", "baseMinutes": 5, "status": "UP", "delayMinutes": 0 },
+    { "fromId": "H1", "toId": "H3", "baseMinutes": 20, "status": "UP", "delayMinutes": 0 },
+    { "fromId": "H5", "toId": "H3", "baseMinutes": 45, "status": "UP", "delayMinutes": 0 },
+    { "fromId": "H2", "toId": "H1", "baseMinutes": 25, "status": "UP", "delayMinutes": 0 }
+  ]
+}
