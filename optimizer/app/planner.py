@@ -41,9 +41,10 @@ def compute_cost_integer(
     """
     transport_cost = int(round(candidate.transit_minutes * weights.w_transport))
     
-    # FEFO: sooner expiring units have lower cost, so they are prioritized
+    # FEFO: sooner expiring units have lower cost, capped at fefo_cap_hours (default 72h)
     hours_to_expiry = max(0.0, (unit.expires_at - now).total_seconds() / 3600.0)
-    fefo_cost = int(round(hours_to_expiry * weights.w_fefo))
+    fefo_hours = min(hours_to_expiry, weights.fefo_cap_hours)
+    fefo_cost = int(round(fefo_hours * weights.w_fefo))
     
     # Margin penalty: closer to 30 min safety margin receives slight penalty
     margin_penalty = int(round((weights.w_expiry_penalty * 1000.0) / (candidate.expiry_margin_minutes + 1)))

@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import json
+from pathlib import Path
 import pytest
 from app.models import UnitSnapshot, RequestSnapshot, RouteSnapshot, PlanRequest
 from app.planner import solve_baseline, solve_optimized, format_expiry_margin
@@ -206,3 +208,116 @@ def test_route_matrix_completeness_and_symmetry():
             assert route_map[(f, t)].base_minutes == route_map[(t, f)].base_minutes, (
                 f"Asymmetric route between {f} and {t}: {route_map[(f, t)].base_minutes} != {route_map[(t, f)].base_minutes}"
             )
+
+# --- 5. Seeded Data Optimality & R-102/R-105 Contention Tests ---
+def test_seeded_data_optimized_satisfied_gte_baseline():
+    snapshot_path = Path(__file__).parent / "seed_snapshot.json"
+    assert snapshot_path.exists(), "seed_snapshot.json must exist in tests directory"
+
+    with open(snapshot_path, "r") as f:
+        data = json.load(f)
+
+    now = datetime.fromisoformat(data["now"].replace("Z", "+00:00") if "Z" in data["now"] else data["now"])
+    units = [
+        UnitSnapshot(
+            id=u["id"],
+            component=u["component"],
+            group=u["group"],
+            hospitalId=u["hospitalId"],
+            collectedAt=datetime.fromisoformat(u["collectedAt"].replace("Z", "+00:00") if "Z" in u["collectedAt"] else u["collectedAt"]),
+            expiresAt=datetime.fromisoformat(u["expiresAt"].replace("Z", "+00:00") if "Z" in u["expiresAt"] else u["expiresAt"]),
+            status=u["status"]
+        ) for u in data["units"]
+    ]
+    requests = [
+        RequestSnapshot(
+            id=r["id"],
+            hospitalId=r["hospitalId"],
+            component=r["component"],
+            group=r["group"],
+            unitsNeeded=r["unitsNeeded"],
+            neededBy=datetime.fromisoformat(r["neededBy"].replace("Z", "+00:00") if "Z" in r["neededBy"] else r["neededBy"]),
+            urgency=r["urgency"],
+            status=r["status"]
+        ) for r in data["requests"]
+    ]
+    routes = [
+        RouteSnapshot(
+            fromId=rt["fromId"],
+            toId=rt["toId"],
+            baseMinutes=rt["baseMinutes"],
+            status=rt["status"],
+            delayMinutes=rt.get("delayMinutes", 0)
+        ) for rt in data["routes"]
+    ]
+
+    req_base = PlanRequest(units=units, requests=requests, routes=routes, now=now, mode="baseline")
+    res_base = solve_baseline(req_base)
+
+    req_opt = PlanRequest(units=units, requests=requests, routes=routes, now=now, mode="optimized")
+    res_opt = solve_optimized(req_opt)
+
+    # Core assertion: Optimized must satisfy at least as many requests as baseline (6 >= 5 on seeded data)
+    assert res_opt.metrics.satisfied >= res_base.metrics.satisfied
+    assert res_opt.metrics.satisfied == 6
+    assert res_base.metrics.satisfied == 5
+
+
+def test_r102_r105_contention_optimized_beats_baseline():
+    routes = get_complete_symmetric_routes()
+
+    # R-102: At H1, needs 2 units of A+ Red Cells. Urgency: URGENT
+    r102 = RequestSnapshot(
+        id="R-102", hospitalId="H1", component="RED_CELLS", group="A+",
+        unitsNeeded=2, neededBy=NOW + timedelta(hours=4), urgency="URGENT"
+    )
+
+    # R-105: At H2, needs 1 unit of B+ Red Cells. Urgency: ROUTINE
+    r105 = RequestSnapshot(
+        id="R-105", hospitalId="H2", component="RED_CELLS", group="B+",
+        unitsNeeded=1, neededBy=NOW + timedelta(hours=8), urgency="ROUTINE"
+    )
+
+    # U-10005: O+ unit at H1. Compatible with BOTH A+ and B+!
+    u10005 = UnitSnapshot(
+        id="U-10005", component="RED_CELLS", group="O+", hospitalId="H1",
+        collectedAt=NOW - timedelta(days=10), expiresAt=NOW + timedelta(days=30), status="AVAILABLE"
+    )
+
+    # U-10006: A+ unit at H1. Compatible ONLY with A+!
+    u10006 = UnitSnapshot(
+        id="U-10006", component="RED_CELLS", group="A+", hospitalId="H1",
+        collectedAt=NOW - timedelta(days=10), expiresAt=NOW + timedelta(days=30), status="AVAILABLE"
+    )
+
+    # U-10007: A+ unit at H3. Compatible ONLY with A+! (Transit H3->H1 is 20m base + 15m buffer = 35m)
+    u10007 = UnitSnapshot(
+        id="U-10007", component="RED_CELLS", group="A+", hospitalId="H3",
+        collectedAt=NOW - timedelta(days=10), expiresAt=NOW + timedelta(days=30), status="AVAILABLE"
+    )
+
+    units = [u10005, u10006, u10007]
+    requests = [r102, r105]
+
+    req_base = PlanRequest(units=units, requests=requests, routes=routes, now=NOW, mode="baseline")
+    res_base = solve_baseline(req_base)
+
+    req_opt = PlanRequest(units=units, requests=requests, routes=routes, now=NOW, mode="optimized")
+    res_opt = solve_optimized(req_opt)
+
+    # In baseline: R-102 (URGENT) greedily takes U-10005 and U-10006 (local 5m).
+    # R-105 (ROUTINE) is starved because U-10007 is incompatible with B+.
+    assert res_base.assignments[0].allocated_unit_ids == ["U-10005", "U-10006"]
+    assert res_base.assignments[1].allocated_unit_ids == []
+    assert res_base.metrics.satisfied == 1
+    assert res_base.metrics.unfulfilled == 1
+
+    # In optimized: OR-Tools SimpleMinCostFlow globally routes U-10006 and U-10007 to R-102,
+    # freeing U-10005 to fulfill R-105. Both requests are 100% satisfied!
+    assert res_opt.assignments[0].allocated_unit_ids == ["U-10006", "U-10007"]
+    assert res_opt.assignments[1].allocated_unit_ids == ["U-10005"]
+    assert res_opt.metrics.satisfied == 2
+    assert res_opt.metrics.unfulfilled == 0
+
+    # Core assertion: Optimized strictly beats baseline on contention
+    assert res_opt.metrics.satisfied > res_base.metrics.satisfied

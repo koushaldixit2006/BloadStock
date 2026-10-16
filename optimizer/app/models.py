@@ -80,6 +80,7 @@ class PlanWeights(BaseModel):
     w_unfilled_critical: float = Field(default=1000000.0, alias="wUnfilledCritical")
     w_unfilled_urgent: float = Field(default=500000.0, alias="wUnfilledUrgent")
     w_unfilled_routine: float = Field(default=100000.0, alias="wUnfilledRoutine")
+    fefo_cap_hours: float = Field(default=72.0, alias="fefoCapHours")
 
 class PlanRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
