@@ -1,0 +1,57 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: bloodstock-api-spring
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://127.0.0.1:27017/bloodstock_spring?replicaSet=rs0}
+      auto-index-creation: false
+
+bloodstock:
+  port: ${PORT:8080}
+  mongodb-uri: ${MONGODB_URI:mongodb://127.0.0.1:27017/bloodstock_spring?replicaSet=rs0}
+  optimizer-url: ${OPTIMIZER_URL:http://127.0.0.1:8000}
+  internal-secret: ${INTERNAL_SECRET:bloodstock-dev-secret-key-32chars-min}
+  jwt-access-secret: ${JWT_SECRET:super-secret-jwt-key-for-bloodstock-planning-token-32c}
+  jwt-refresh-secret: ${JWT_REFRESH_SECRET:super-secret-refresh-key-for-bloodstock-planning-token-32c}
+  shared-rules-path: ${SHARED_RULES_PATH:../shared/rules.json}
+  cors-origin: ${CORS_ORIGIN:http://localhost:5173}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  swagger-ui:
+    path: /docs
+    enabled: true
+  api-docs:
+    path: /docs/openapi.yaml
+    enabled: true
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      optimizerClient:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 3
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10000ms
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+  retry:
+    instances:
+      optimizerClient:
+        maxAttempts: 2
+        waitDuration: 500ms
+        retryExceptions:
+          - java.io.IOException
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException

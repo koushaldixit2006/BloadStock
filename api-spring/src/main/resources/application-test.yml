@@ -1,0 +1,18 @@
+server:
+  port: 0
+
+spring:
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://127.0.0.1:27017/bloodstock_test?replicaSet=rs0}
+      auto-index-creation: false
+
+bloodstock:
+  mongodb-uri: ${MONGODB_URI:mongodb://127.0.0.1:27017/bloodstock_test?replicaSet=rs0}
+  rate-limiting-enabled: false
+  optimizer-url: ${OPTIMIZER_URL:http://127.0.0.1:8000}
+  internal-secret: ${INTERNAL_SECRET:bloodstock-dev-secret-key-32chars-min}
+  jwt-access-secret: ${JWT_SECRET:test-jwt-secret-minimum-32-characters-for-testing}
+  jwt-refresh-secret: ${JWT_REFRESH_SECRET:test-refresh-secret-minimum-32-characters}
+  shared-rules-path: ${SHARED_RULES_PATH:../shared/rules.json}
+  cors-origin: "http://localhost:5173"

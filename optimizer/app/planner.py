@@ -195,9 +195,12 @@ def solve_baseline(req: PlanRequest) -> PlanResponse:
 
     unit_map = {u.id: u for u in req.units}
     assigned_units: Set[str] = set()
+    unit_to_allocated_req: Dict[str, str] = {}
     assignments: List[PlanAssignment] = []
     unfulfilled_list: List[UnfulfilledItem] = []
     candidates_by_unit_req: Dict[Tuple[str, str], FeasibilityCandidate] = {}
+    candidate_options_by_req: Dict[str, List[FeasibilityCandidate]] = {}
+    allocated_by_req: Dict[str, List[str]] = {}
 
     for r in sorted_requests:
         candidate_options: List[FeasibilityCandidate] = []
@@ -205,6 +208,7 @@ def solve_baseline(req: PlanRequest) -> PlanResponse:
             cand = evaluate_candidate(u, r, req.routes, req.now)
             candidate_options.append(cand)
             candidates_by_unit_req[(u.id, r.id)] = cand
+        candidate_options_by_req[r.id] = candidate_options
 
         # Feasible unassigned candidates
         feasible_candidates = [
@@ -224,6 +228,24 @@ def solve_baseline(req: PlanRequest) -> PlanResponse:
         for c in feasible_candidates[:r.units_needed]:
             allocated_ids.append(c.unit_id)
             assigned_units.add(c.unit_id)
+            unit_to_allocated_req[c.unit_id] = r.id
+        allocated_by_req[r.id] = allocated_ids
+
+    for r in sorted_requests:
+        allocated_ids = allocated_by_req[r.id]
+        candidate_options = candidate_options_by_req[r.id]
+
+        final_options: List[FeasibilityCandidate] = []
+        for c in candidate_options:
+            if c.feasible and c.unit_id in unit_to_allocated_req and unit_to_allocated_req[c.unit_id] != r.id:
+                final_options.append(
+                    c.model_copy(update={
+                        "feasible": False,
+                        "blocking_reasons": c.blocking_reasons + [f"Allocated to {unit_to_allocated_req[c.unit_id]} in this plan"]
+                    })
+                )
+            else:
+                final_options.append(c)
 
         is_complete = len(allocated_ids) >= r.units_needed
         if not is_complete:
@@ -246,7 +268,7 @@ def solve_baseline(req: PlanRequest) -> PlanResponse:
             PlanAssignment(
                 request_id=r.id,
                 allocated_unit_ids=allocated_ids,
-                options=candidate_options,
+                options=final_options,
                 explanation=explanation,
                 is_complete=is_complete
             )
@@ -347,6 +369,11 @@ def solve_optimized(req: PlanRequest) -> PlanResponse:
         if smcf.flow(arc_idx) > 0:
             allocated_by_request[rid].append(uid)
 
+    unit_to_allocated_req: Dict[str, str] = {}
+    for rid, uids in allocated_by_request.items():
+        for uid in uids:
+            unit_to_allocated_req[uid] = rid
+
     assignments: List[PlanAssignment] = []
     unfulfilled_list: List[UnfulfilledItem] = []
 
@@ -355,6 +382,19 @@ def solve_optimized(req: PlanRequest) -> PlanResponse:
         # Sort allocated units deterministically
         allocated.sort()
         options = candidates_by_request[r.id]
+
+        final_options: List[FeasibilityCandidate] = []
+        for c in options:
+            if c.feasible and c.unit_id in unit_to_allocated_req and unit_to_allocated_req[c.unit_id] != r.id:
+                final_options.append(
+                    c.model_copy(update={
+                        "feasible": False,
+                        "blocking_reasons": c.blocking_reasons + [f"Allocated to {unit_to_allocated_req[c.unit_id]} in this plan"]
+                    })
+                )
+            else:
+                final_options.append(c)
+
         is_complete = len(allocated) >= r.units_needed
 
         if not is_complete:
@@ -379,7 +419,7 @@ def solve_optimized(req: PlanRequest) -> PlanResponse:
             PlanAssignment(
                 request_id=r.id,
                 allocated_unit_ids=allocated,
-                options=options,
+                options=final_options,
                 explanation=explanation,
                 is_complete=is_complete
             )

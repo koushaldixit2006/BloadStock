@@ -40,77 +40,83 @@ export async function verifyReservationIndex(customUri?: string) {
   // Clean up any stale test documents
   await Reservation.deleteMany({ unitId: testUnitId });
 
-  console.log(`[Attempt 1] Creating first ACTIVE reservation for unit ${testUnitId}...`);
-  const res1 = await Reservation.create({
-    id: 'RSV-TEST-001',
-    unitId: testUnitId,
-    requestId: testRequestId1,
-    fromHospitalId: 'H1',
-    toHospitalId: 'H3',
-    dispatchAt: new Date(),
-    eta: new Date(Date.now() + 35 * 60000),
-    transitMinutes: 35,
-    status: 'RESERVED',
-    isActive: true,
-  });
-  console.log(`   -> Successfully created ${res1.id} (isActive: ${res1.isActive})`);
-
-  console.log(`[Attempt 2] Attempting to create SECOND ACTIVE reservation for SAME unit ${testUnitId}...`);
-  let caught11000 = false;
-  let errorCode: number | undefined;
-
   try {
-    await Reservation.create({
-      id: 'RSV-TEST-002',
+    console.log(`[Attempt 1] Creating first ACTIVE reservation for unit ${testUnitId}...`);
+    const res1 = await Reservation.create({
+      id: 'RSV-TEST-001',
       unitId: testUnitId,
-      requestId: testRequestId2,
+      requestId: testRequestId1,
       fromHospitalId: 'H1',
-      toHospitalId: 'H4',
+      toHospitalId: 'H3',
       dispatchAt: new Date(),
-      eta: new Date(Date.now() + 30 * 60000),
-      transitMinutes: 30,
+      eta: new Date(Date.now() + 35 * 60000),
+      transitMinutes: 35,
       status: 'RESERVED',
       isActive: true,
     });
-    console.error('❌ ERROR: Second active reservation succeeded! Invariant broken!');
-  } catch (err: unknown) {
-    const mongoErr = err as { code?: number; message?: string };
-    errorCode = mongoErr.code;
-    if (mongoErr.code === 11000) {
-      caught11000 = true;
-      console.log('   -> ✅ Second active reservation rejected as expected!');
-      console.log(`   -> Error Code: ${mongoErr.code} (Duplicate Key Error)`);
-      console.log(`   -> Details: ${mongoErr.message}`);
-    } else {
-      console.error('❌ Unexpected error occurred:', err);
+    console.log(`   -> Successfully created ${res1.id} (isActive: ${res1.isActive})`);
+
+    console.log(`[Attempt 2] Attempting to create SECOND ACTIVE reservation for SAME unit ${testUnitId}...`);
+    let caught11000 = false;
+    let errorCode: number | undefined;
+
+    try {
+      await Reservation.create({
+        id: 'RSV-TEST-002',
+        unitId: testUnitId,
+        requestId: testRequestId2,
+        fromHospitalId: 'H1',
+        toHospitalId: 'H4',
+        dispatchAt: new Date(),
+        eta: new Date(Date.now() + 30 * 60000),
+        transitMinutes: 30,
+        status: 'RESERVED',
+        isActive: true,
+      });
+      console.error('❌ ERROR: Second active reservation succeeded! Invariant broken!');
+    } catch (err: unknown) {
+      const mongoErr = err as { code?: number; message?: string };
+      errorCode = mongoErr.code;
+      if (mongoErr.code === 11000) {
+        caught11000 = true;
+        console.log('   -> ✅ Second active reservation rejected as expected!');
+        console.log(`   -> Error Code: ${mongoErr.code} (Duplicate Key Error)`);
+        console.log(`   -> Details: ${mongoErr.message}`);
+      } else {
+        console.error('❌ Unexpected error occurred:', err);
+      }
     }
+
+    if (!caught11000) {
+      throw new Error(`❌ Invariant failed: Expected Mongo error 11000, got ${errorCode}`);
+    }
+
+    console.log('\n[Attempt 3] Testing non-active historical reservation for SAME unit (DELIVERED)...');
+    const res3 = await Reservation.create({
+      id: 'RSV-TEST-003',
+      unitId: testUnitId,
+      requestId: 'R-TEST-HISTORIC',
+      fromHospitalId: 'H1',
+      toHospitalId: 'H3',
+      dispatchAt: new Date(Date.now() - 3600000),
+      eta: new Date(Date.now() - 1800000),
+      transitMinutes: 30,
+      status: 'DELIVERED',
+      isActive: false,
+    });
+    console.log(`   -> Successfully inserted historical DELIVERED reservation ${res3.id} (isActive: false)`);
+    console.log('   -> Proves partialFilterExpression allows historical terminal records while locking active ones!');
+    console.log('\n✅ Invariant verification completed with 100% SUCCESS.');
+
+    return { indexes, partialActiveIndex, caught11000, errorCode };
+  } finally {
+    await Reservation.deleteMany({
+      $or: [
+        { unitId: testUnitId },
+        { id: { $regex: '^RSV-TEST-' } }
+      ]
+    });
   }
-
-  if (!caught11000) {
-    throw new Error(`❌ Invariant failed: Expected Mongo error 11000, got ${errorCode}`);
-  }
-
-  console.log('\n[Attempt 3] Testing non-active historical reservation for SAME unit (DELIVERED)...');
-  const res3 = await Reservation.create({
-    id: 'RSV-TEST-003',
-    unitId: testUnitId,
-    requestId: 'R-TEST-HISTORIC',
-    fromHospitalId: 'H1',
-    toHospitalId: 'H3',
-    dispatchAt: new Date(Date.now() - 3600000),
-    eta: new Date(Date.now() - 1800000),
-    transitMinutes: 30,
-    status: 'DELIVERED',
-    isActive: false,
-  });
-  console.log(`   -> Successfully inserted historical DELIVERED reservation ${res3.id} (isActive: false)`);
-  console.log('   -> Proves partialFilterExpression allows historical terminal records while locking active ones!');
-
-  // Cleanup
-  await Reservation.deleteMany({ unitId: testUnitId });
-  console.log('\n✅ Invariant verification completed with 100% SUCCESS.');
-
-  return { indexes, partialActiveIndex, caught11000, errorCode };
 }
 
 if (require.main === module) {

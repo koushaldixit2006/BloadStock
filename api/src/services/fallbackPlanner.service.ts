@@ -61,6 +61,9 @@ export class FallbackPlannerService {
     });
 
     const assignedUnits = new Set<string>();
+    const unitToAllocatedReq = new Map<string, string>();
+    const allocatedByReq = new Map<string, string[]>();
+    const optionsByReq = new Map<string, FeasibilityCandidate[]>();
     const assignments: any[] = [];
     const unfulfilledList: any[] = [];
     const candidatesByUnitReq = new Map<string, FeasibilityCandidate>();
@@ -72,6 +75,7 @@ export class FallbackPlannerService {
         allCandidates.push(cand);
         candidatesByUnitReq.set(`${cand.unitId}:${r.id}`, cand);
       }
+      optionsByReq.set(r.id, allCandidates);
 
       const feasibleAvailable = allCandidates.filter(
         (c) => c.feasible && !assignedUnits.has(c.unitId)
@@ -94,7 +98,26 @@ export class FallbackPlannerService {
       for (const c of feasibleAvailable.slice(0, r.unitsNeeded)) {
         allocatedIds.push(c.unitId);
         assignedUnits.add(c.unitId);
+        unitToAllocatedReq.set(c.unitId, r.id);
       }
+      allocatedByReq.set(r.id, allocatedIds);
+    }
+
+    for (const r of sortedRequests) {
+      const allocatedIds = allocatedByReq.get(r.id) || [];
+      const allCandidates = optionsByReq.get(r.id) || [];
+
+      const finalOptions = allCandidates.map((c) => {
+        const allocatedToReq = unitToAllocatedReq.get(c.unitId);
+        if (c.feasible && allocatedToReq && allocatedToReq !== r.id) {
+          return {
+            ...c,
+            feasible: false,
+            blockingReasons: [...c.blockingReasons, `Allocated to ${allocatedToReq} in this plan`],
+          };
+        }
+        return c;
+      });
 
       const isComplete = allocatedIds.length >= r.unitsNeeded;
       if (!isComplete) {
@@ -168,7 +191,7 @@ export class FallbackPlannerService {
       assignments.push({
         requestId: r.id,
         allocatedUnitIds: allocatedIds,
-        options: allCandidates,
+        options: finalOptions,
         explanation,
         isComplete,
       });

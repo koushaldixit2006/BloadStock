@@ -1,0 +1,10 @@
+# Seed profile configuration
+spring:
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://127.0.0.1:27017/bloodstock_spring?replicaSet=rs0}
+
+bloodstock:
+  mongodb-uri: ${MONGODB_URI:mongodb://127.0.0.1:27017/bloodstock_spring?replicaSet=rs0}
+  seed:
+    auto-run: true

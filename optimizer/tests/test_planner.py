@@ -210,7 +210,7 @@ def test_route_matrix_completeness_and_symmetry():
             )
 
 # --- 5. Seeded Data Optimality & R-102/R-105 Contention Tests ---
-def test_seeded_data_optimized_satisfied_gte_baseline():
+def load_seed_snapshot():
     snapshot_path = Path(__file__).parent / "seed_snapshot.json"
     assert snapshot_path.exists(), "seed_snapshot.json must exist in tests directory"
 
@@ -250,6 +250,11 @@ def test_seeded_data_optimized_satisfied_gte_baseline():
             delayMinutes=rt.get("delayMinutes", 0)
         ) for rt in data["routes"]
     ]
+    return units, requests, routes, now
+
+
+def test_seeded_data_optimized_satisfied_gte_baseline():
+    units, requests, routes, now = load_seed_snapshot()
 
     req_base = PlanRequest(units=units, requests=requests, routes=routes, now=now, mode="baseline")
     res_base = solve_baseline(req_base)
@@ -261,6 +266,111 @@ def test_seeded_data_optimized_satisfied_gte_baseline():
     assert res_opt.metrics.satisfied >= res_base.metrics.satisfied
     assert res_opt.metrics.satisfied == 6
     assert res_base.metrics.satisfied == 5
+
+
+def test_invariants_no_double_allocation_and_compatibility():
+    units, requests, routes, now = load_seed_snapshot()
+    req_map = {r.id: r for r in requests}
+    unit_map = {u.id: u for u in units}
+
+    for solver, mode_name in [(solve_baseline, "baseline"), (solve_optimized, "optimized")]:
+        plan_req = PlanRequest(units=units, requests=requests, routes=routes, now=now, mode=mode_name)
+        res = solver(plan_req)
+
+        # Invariant 1: No double allocation across any assignments
+        all_allocated = []
+        for a in res.assignments:
+            all_allocated.extend(a.allocated_unit_ids)
+        assert len(all_allocated) == len(set(all_allocated)), f"{mode_name}: duplicate unit allocated!"
+
+        # Invariant 2: ABO/Rh compatibility of all allocated units
+        for a in res.assignments:
+            r = req_map[a.request_id]
+            for uid in a.allocated_unit_ids:
+                u = unit_map[uid]
+                assert is_compatible(u.component, u.group, r.group), f"{mode_name}: incompatible unit {uid} for request {r.id}"
+                assert u.status == "AVAILABLE"
+                assert u.component == r.component
+
+
+def test_determinism_identical_output_on_two_runs():
+    units, requests, routes, now = load_seed_snapshot()
+
+    for solver, mode_name in [(solve_baseline, "baseline"), (solve_optimized, "optimized")]:
+        plan_req1 = PlanRequest(units=units, requests=requests, routes=routes, now=now, mode=mode_name)
+        res1 = solver(plan_req1)
+
+        plan_req2 = PlanRequest(units=units, requests=requests, routes=routes, now=now, mode=mode_name)
+        res2 = solver(plan_req2)
+
+        assert res1.metrics == res2.metrics
+        assert len(res1.assignments) == len(res2.assignments)
+        for a1, a2 in zip(res1.assignments, res2.assignments):
+            assert a1.request_id == a2.request_id
+            assert a1.allocated_unit_ids == a2.allocated_unit_ids
+            assert a1.is_complete == a2.is_complete
+            assert a1.explanation == a2.explanation
+            assert len(a1.options) == len(a2.options)
+        assert res1.unfulfilled == res2.unfulfilled
+
+
+def test_optimized_vs_baseline_performance():
+    units, requests, routes, now = load_seed_snapshot()
+
+    req_base = PlanRequest(units=units, requests=requests, routes=routes, now=now, mode="baseline")
+    res_base = solve_baseline(req_base)
+
+    req_opt = PlanRequest(units=units, requests=requests, routes=routes, now=now, mode="optimized")
+    res_opt = solve_optimized(req_opt)
+
+    # Core assertion: Optimized satisfies all 6 requests vs 5 for baseline
+    assert res_opt.metrics.satisfied >= res_base.metrics.satisfied
+    assert res_opt.metrics.satisfied == 6
+    assert res_base.metrics.satisfied == 5
+    assert res_opt.metrics.unfulfilled == 0
+    assert res_base.metrics.unfulfilled == 1
+    assert len(res_opt.unfulfilled) == 0
+    assert len(res_base.unfulfilled) == 1
+
+
+def test_plan_options_mark_allocated_units_as_infeasible():
+    routes = get_complete_symmetric_routes()
+
+    # R1: At H1, needs 1 unit A+ Red Cells, CRITICAL
+    r1 = RequestSnapshot(
+        id="R-PLAN-1", hospitalId="H1", component="RED_CELLS", group="A+",
+        unitsNeeded=1, neededBy=NOW + timedelta(hours=2), urgency="CRITICAL"
+    )
+    # R2: At H1, needs 1 unit B+ Red Cells, ROUTINE
+    r2 = RequestSnapshot(
+        id="R-PLAN-2", hospitalId="H1", component="RED_CELLS", group="B+",
+        unitsNeeded=1, neededBy=NOW + timedelta(hours=4), urgency="ROUTINE"
+    )
+    # Unit U1: O+ Red Cells at H1 (compatible with both A+ and B+)
+    u1 = UnitSnapshot(
+        id="U-PLAN-O1", component="RED_CELLS", group="O+", hospitalId="H1",
+        collectedAt=NOW - timedelta(days=5), expiresAt=NOW + timedelta(days=20), status="AVAILABLE"
+    )
+
+    for solver, mode_name in [(solve_baseline, "baseline"), (solve_optimized, "optimized")]:
+        plan_req = PlanRequest(
+            units=[u1], requests=[r1, r2], routes=routes, now=NOW, mode=mode_name
+        )
+        res = solver(plan_req)
+
+        # R1 is CRITICAL so it gets U-PLAN-O1
+        a1 = next(a for a in res.assignments if a.request_id == "R-PLAN-1")
+        assert a1.allocated_unit_ids == ["U-PLAN-O1"]
+
+        # R2 does not get U-PLAN-O1
+        a2 = next(a for a in res.assignments if a.request_id == "R-PLAN-2")
+        assert a2.allocated_unit_ids == []
+
+        # In R2's options, U-PLAN-O1 must be marked feasible: false with "Allocated to R-PLAN-1 in this plan"
+        u1_opt = next(o for o in a2.options if o.unit_id == "U-PLAN-O1")
+        assert u1_opt.feasible is False
+        assert any("Allocated to R-PLAN-1 in this plan" in r for r in u1_opt.blocking_reasons)
+
 
 
 def test_r102_r105_contention_optimized_beats_baseline():

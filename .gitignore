@@ -32,9 +32,15 @@ htmlcov/
 api/.env
 
 # Database Data
-mongo_data/
-data/
-db/
+/mongo_data/
+/data/
+/db/
+
+# Java & Maven
+target/
+api-spring/target/
+*.class
+.mvn/wrapper/maven-wrapper.jar
 
 # Logs
 logs/
